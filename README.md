@@ -19,6 +19,8 @@ Read the original documentation [here](https://neontology.readthedocs.io/en/late
 - Support non-unique elements, optionally mapping Neo4j Element_ID into Neontolojay Node and Relationship Properties (#2)
 - Support for Pydantic Field Aliases in Property Names (#3)
 - Support multiple relationship classes with the same relationship_type (#5)
+- Merge() behavior no longer overwrites database element properties for optional fields (#8)
+- On create and on match properties are synchronized back to calling object on merge()
 
 ## Installation
 
@@ -41,7 +43,7 @@ See the [changelog](CHANGELOG.md) or [read the docs](https://neontology.readthed
 ## Example
 
 ```python
-from typing import ClassVar, Optional, List
+from typing import ClassVar, Optional
 import pandas as pd
 from neontology import BaseNode, BaseRelationship, init_neontology, Neo4jConfig
 
@@ -49,7 +51,7 @@ from neontology import BaseNode, BaseRelationship, init_neontology, Neo4jConfig
 class PersonNode(BaseNode):
     __primarylabel__: ClassVar[str] = "Person"
     __primaryproperty__: ClassVar[str] = "name"
-    __secondarylabels__: ClassVar[Optional[List]] = ["Individual", "Somebody"]
+    __secondarylabels__: ClassVar[Optional[list]] = ["Individual", "Somebody"]
     
     name: str
     age: int

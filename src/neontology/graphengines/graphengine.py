@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from pydantic import BaseModel
 
@@ -66,14 +66,14 @@ class GraphEngineBase:
             return value
 
     @classmethod
-    def export_dict_converter(cls, original_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def export_dict_converter(cls, original_dict: dict[str, Any]) -> dict[str, Any]:
         """_summary_
 
         Args:
-            export_dict (Dict[str, Any]): _description_
+            export_dict (dict[str, Any]): _description_
 
         Returns:
-            Dict[str, Any]: _description_
+            dict[str, Any]: _description_
         """
 
         export_dict = original_dict.copy()
@@ -92,13 +92,13 @@ class GraphEngineBase:
     def evaluate_query(
         self,
         cypher: str,
-        params: Dict[str, Any] = {},
+        params: dict[str, Any] = {},
         node_classes: dict = {},
         relationship_classes: dict = {},
     ) -> NeontologyResult:
         raise NotImplementedError
 
-    def evaluate_query_single(self, cypher: str, params: Dict[str, Any]) -> Any:
+    def evaluate_query_single(self, cypher: str, params: dict[str, Any]) -> Any:
         raise NotImplementedError
 
     def apply_constraint(self, label: str, property: str) -> None:
@@ -112,7 +112,7 @@ class GraphEngineBase:
 
     def create_nodes(
         self, labels: list, pp_key: str, properties: list, node_class: type["BaseNode"]
-    ) -> List["BaseNode"]:
+    ) -> list["BaseNode"]:
         """
         Args:
             labels (list): a list of labels to give created nodes
@@ -127,9 +127,17 @@ class GraphEngineBase:
 
         label_identifiers = [gql_identifier_adapter.validate_strings(x) for x in labels]
 
+        element_id_prop_name = getattr(node_class, "__elementidproperty__", None)
+        if node_class.__primaryproperty__ == element_id_prop_name:
+            pp_cypher = ""
+        else:
+            pp_cypher = (
+                f"{{{gql_identifier_adapter.validate_strings(pp_key)}: node.pp}}"
+            )
+
         cypher = f"""
         UNWIND $node_list AS node
-        create (n:{":".join(label_identifiers)} {{{gql_identifier_adapter.validate_strings(pp_key)}: node.pp}})
+        create (n:{":".join(label_identifiers)} {pp_cypher})
         SET n += node.props
         RETURN n
         """
@@ -143,8 +151,12 @@ class GraphEngineBase:
         return results.nodes
 
     def merge_nodes(
-        self, labels: list, pp_key: str, properties: list, node_class: type["BaseNode"]
-    ) -> List["BaseNode"]:
+        self,
+        labels: list[str],
+        pp_key: str,
+        properties: list[dict],
+        node_class: type["BaseNode"],
+    ) -> list["BaseNode"]:
         """_summary_
 
         Args:
@@ -159,6 +171,14 @@ class GraphEngineBase:
         """
 
         label_identifiers = [gql_identifier_adapter.validate_strings(x) for x in labels]
+
+        element_id_prop_name: str | None = getattr(
+            node_class, "__elementidproperty__", None
+        )
+        if node_class.__primaryproperty__ == element_id_prop_name:
+            return self._merge_element_id_nodes(
+                label_identifiers, pp_key, properties, node_class, element_id_prop_name
+            )
 
         cypher = f"""
         UNWIND $node_list AS node
@@ -177,7 +197,57 @@ class GraphEngineBase:
 
         return results.nodes
 
-    def delete_nodes(self, label: str, pp_key: str, pp_values: List[Any]) -> None:
+    def _merge_element_id_nodes(
+        self,
+        label_identifiers: list[str],
+        pp_key: str,
+        properties: list[dict],
+        node_class: type["BaseNode"],
+        element_id_prop_name: str,
+    ) -> list["BaseNode"]:
+        """Manually merge element ID nodes
+        Args:
+            labels (list): _description_
+            pp_key (str): _description_
+            properties (list): A list of dictionaries representing each node to be created.
+                four keys with associated values: pp (the value to assign the primary property)
+                set_on_match, set_on_create and always_set (dicts with key value pairs for all other properties).
+            node_class (type[BaseNode]): class of nodes being merged
+            element_id_prop_name (str): property of class used as an element id
+
+        Returns:
+            list: list of merged Nodes
+        """
+        result_list = []
+        for node_prop in properties:
+            match = self.match_node(node_prop["pp"], node_class)
+            if not match:
+                create_props = node_prop["always_set"] | node_prop["set_on_create"]
+                node_details = [{"pp": node_prop["pp"], "props": create_props}]
+                result_list.extend(
+                    self.create_nodes(
+                        label_identifiers, pp_key, node_details, node_class
+                    )
+                )
+            else:
+                cypher = f"""
+                MATCH (n:{":".join(label_identifiers)})
+                WHERE {self._where_elementId_cypher()}
+                SET n += $set_on_match
+                SET n += $always_set
+                RETURN n
+                """
+                results = self.evaluate_query(
+                    cypher, node_prop, {node_class.__primarylabel__: node_class}
+                )
+                result_list.extend(results.nodes)
+        return result_list
+
+    @staticmethod
+    def _where_elementId_cypher() -> str:
+        return "elementId(n) = $pp"
+
+    def delete_nodes(self, label: str, pp_key: str, pp_values: list[Any]) -> None:
         cypher = f"""
         UNWIND $pp_values AS pp
         MATCH (n:{gql_identifier_adapter.validate_strings(label)})
@@ -196,8 +266,8 @@ class GraphEngineBase:
         source_prop: str,
         target_prop: str,
         rel_type: str,
-        merge_on_props: List[str],
-        rel_props: List[dict],
+        merge_on_props: list[str],
+        rel_props: list[dict],
         rel_class: type["BaseRelationship"],
     ) -> NeontologyResult:
         # build a string of properties to merge on "prop_name: $prop_name"
@@ -251,12 +321,46 @@ class GraphEngineBase:
             cypher, params, node_classes=node_classes, relationship_classes=rel_types
         )
 
+    def match_node(self, pp: str, node_class: type[BaseNode]) -> Optional[BaseNode]:
+        """MATCH a single node of this type with the given primary property.
+
+        Args:
+            pp (str): The value of the primary property (pp) to match on.
+            node_class (type[BaseNode]): Class of the node to match
+
+        Returns:
+            Optional[B]: If the node exists, return it as an instance.
+        """
+        element_id_prop_name = getattr(node_class, "__elementidproperty__", None)
+        if node_class.__primaryproperty__ == element_id_prop_name:
+            match_cypher = "elementId(n)"
+        else:
+            match_cypher = f"n.{node_class.__primaryproperty__}"
+
+        cypher = f"""
+        MATCH (n:{node_class.__primarylabel__})
+        WHERE {match_cypher} = $pp
+        RETURN n
+        """
+
+        params = {"pp": pp}
+
+        result = self.evaluate_query(
+            cypher, params, node_classes={node_class.__primarylabel__: node_class}
+        )
+
+        if result.nodes:
+            return result.nodes[0]
+
+        else:
+            return None
+
     def match_nodes(
         self,
         node_class: type["BaseNode"],
         limit: Optional[int] = None,
         skip: Optional[int] = None,
-    ) -> List["BaseNode"]:
+    ) -> list["BaseNode"]:
         """Get nodes of this type from the database.
 
         Run a MATCH cypher query to retrieve any Nodes with the label of this class.
@@ -266,7 +370,7 @@ class GraphEngineBase:
             skip (int, optional): Skip through this many results (for pagination). Defaults to None.
 
         Returns:
-            Optional[List[B]]: A list of node instances.
+            Optional[list[B]]: A list of node instances.
         """
 
         cypher = f"""
@@ -295,7 +399,7 @@ class GraphEngineBase:
         relationship_class: type["BaseRelationship"],
         limit: Optional[int] = None,
         skip: Optional[int] = None,
-    ) -> List["BaseRelationship"]:
+    ) -> list["BaseRelationship"]:
         """Get nodes of this type from the database.
 
         Run a MATCH cypher query to retrieve any Nodes with the label of this class.
@@ -305,7 +409,7 @@ class GraphEngineBase:
             skip (int, optional): Skip through this many results (for pagination). Defaults to None.
 
         Returns:
-            Optional[List[B]]: A list of node instances.
+            Optional[list[B]]: A list of node instances.
         """
 
         from ..utils import get_node_types, get_rels_by_type
