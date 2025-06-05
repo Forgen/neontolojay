@@ -39,12 +39,12 @@ class CommonModel(BaseModel):
 
     @classmethod
     def _get_prop_usage(cls, usage_type: str) -> list[str]:
-        all_props = cls.model_json_schema()["properties"]
+        all_props = cls.model_fields
 
         selected_props = []
 
         for prop, entry in all_props.items():
-            if entry.get(usage_type) is True:
+            if entry.json_schema_extra and entry.json_schema_extra.get(usage_type) is True:
                 selected_props.append(prop)
 
         return selected_props
@@ -70,8 +70,11 @@ class CommonModel(BaseModel):
         Returns:
             dict: a dictionary export of this model instance
         """
+        excludes = (exclude | set(self._never_set))
+        if getattr(self, '__primaryproperty__',False):
+            excludes.discard(self.__primaryproperty__)
         pydantic_export_dict = self.model_dump(
-            exclude_none=False, exclude=exclude, by_alias=True, **kwargs
+            exclude_none=False, exclude=excludes, by_alias=True, **kwargs
         )
 
         # return pydantic_export_dict

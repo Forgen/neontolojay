@@ -770,6 +770,29 @@ def test_set_on_create_and_merge(use_graph):
     assert test_node2.only_set_on_create == "Foo"
     assert test_node2.only_set_on_match == "Fa"
 
+def test_never_set_self_reference(use_graph):
+    """Test a field with never_set that references it's own type"""
+    class NeverSetNode(BaseNode):
+        __primaryproperty__: ClassVar[str] = "name"
+        __primarylabel__: ClassVar[str] = "NeverSetNode"
+        name: str
+        never_set_other_node: Optional["NeverSetNode"] = Field(default=None,json_schema_extra={'never_set': True})
+
+    nsn = NeverSetNode(name="Bob")
+    nsn2 = NeverSetNode(name="Jane", never_set_other_node=nsn)
+    nsn.merge()
+    nsn2.merge()
+    
+    cypher = """
+    MATCH (n:NeverSetNode)
+    WHERE n.name = 'Jane'
+    RETURN n
+    """
+
+    cypher_result = use_graph.evaluate_query(cypher)
+
+    assert cypher_result.nodes[0].never_set_other_node is None
+
 
 class Person(BaseNode):
     __primaryproperty__: ClassVar[str] = "identifier"
