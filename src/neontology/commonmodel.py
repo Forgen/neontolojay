@@ -24,30 +24,32 @@ class CommonModel(BaseModel):
 
     @classmethod
     def _set_prop_usage(cls) -> None:
-        cls._set_on_match = cls._get_prop_usage("set_on_match")
-        cls._set_on_create = cls._get_prop_usage("set_on_create")
-        cls._never_set = cls._get_prop_usage("never_set")
+        cls._set_on_match, cls._set_on_match_no_aliases = cls._get_prop_usage("set_on_match")
+        cls._set_on_create, cls._set_on_create_no_aliases = cls._get_prop_usage("set_on_create")
+        cls._never_set, cls._never_set_no_aliases = cls._get_prop_usage("never_set")
         cls._always_set = []
         cls._always_set_no_aliases = []
         for x, v in cls.model_fields.items():
-            if x not in (cls._set_on_match
-            + cls._set_on_create
-            + cls._never_set
+            if x not in (cls._set_on_match_no_aliases
+            + cls._set_on_create_no_aliases
+            + cls._never_set_no_aliases
             + ["source", "target"]):
                 cls._always_set.append(v.alias if v.alias else x)
                 cls._always_set_no_aliases.append(x)
 
     @classmethod
-    def _get_prop_usage(cls, usage_type: str) -> list[str]:
+    def _get_prop_usage(cls, usage_type: str,) -> tuple[list[str], list[str]]:
         all_props = cls.model_fields
 
         selected_props = []
+        selected_props_no_aliases = []
 
         for prop, entry in all_props.items():
             if entry.json_schema_extra and entry.json_schema_extra.get(usage_type) is True:
-                selected_props.append(prop)
+                selected_props.append(entry.alias if entry.alias else prop)
+                selected_props_no_aliases.append(prop)
 
-        return selected_props
+        return (selected_props, selected_props_no_aliases)
 
     def _get_prop_values(
         self, props: list[str], exclude: set[str] = set()
@@ -102,12 +104,14 @@ class CommonModel(BaseModel):
             always_set = {
                 k: all_props[k] for k in self._always_set if (k in all_props and all_props[k] is not None)
             }
+            set_on_match = {k: all_props[k] for k in self._set_on_match if k in all_props}
+            set_on_create = {k: all_props[k] for k in self._set_on_create if k in all_props}
         else:
             always_set = {
                 k: all_props[k] for k in self._always_set_no_aliases if (k in all_props and all_props[k] is not None)
             }
-        set_on_match = {k: all_props[k] for k in self._set_on_match if k in all_props}
-        set_on_create = {k: all_props[k] for k in self._set_on_create if k in all_props}
+            set_on_match = {k: all_props[k] for k in self._set_on_match_no_aliases if k in all_props}
+            set_on_create = {k: all_props[k] for k in self._set_on_create_no_aliases if k in all_props}
         params = {
             "all_props": all_props,
             "always_set": always_set,

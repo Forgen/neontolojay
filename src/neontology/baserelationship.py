@@ -41,7 +41,8 @@ class BaseRelationship(CommonModel):  # pyre-ignore[13]
     @classmethod
     def _set_prop_usage(cls) -> None:
         super()._set_prop_usage()
-        cls._merge_on = cls._get_prop_usage("merge_on")
+        # TODO: add usage of _merge_on_no_aliases
+        cls._merge_on, cls._merge_on_no_aliases = cls._get_prop_usage("merge_on")
 
     @model_validator(mode="after")
     def validate_identifiers(self) -> "BaseRelationship":
@@ -195,7 +196,7 @@ class BaseRelationship(CommonModel):  # pyre-ignore[13]
         """
 
         # define the properties to merge on
-        merge_on_props = cls._get_prop_usage("merge_on")
+        merge_on_props, _ = cls._get_prop_usage("merge_on")
 
         # sources and targets could have different primary labels
         # to operate efficiently, we group like source and targets for batch creation of relationships

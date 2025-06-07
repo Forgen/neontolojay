@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, ConfigDict
 
 from neontology.basenode import BaseNode
 from neontology.baserelationship import BaseRelationship
@@ -159,6 +159,50 @@ def test_merge_relationship_merge_on_match(use_graph):
     assert result == "Foo"
 
     br2 = RelMergeOnMatchTest(
+        source=source_node,
+        target=target_node,
+        prop_to_merge_on="MergeMe",
+        my_prop="Bar",
+    )
+    br2.merge()
+
+    result2 = use_graph.evaluate_query_single(cypher)
+
+    assert result2 == "Bar"
+
+def test_merge_relationship_merge_on_match_with_aliases(use_graph):
+    class RelMergeOnMatchAliasesTest(PracticeRelationship):
+        __relationshiptype__: ClassVar[Optional[str]] = "TEST_REL_MERGE_ON_MATCH_ALIASED"
+        prop_to_merge_on: str = Field(json_schema_extra={"merge_on": True},alias="mergeOn")
+        my_prop: str = Field(...,alias='myProp')
+        model_config = ConfigDict(
+            validate_by_name=True, 
+            validate_by_alias=True,
+            populate_by_name=True,)
+    source_node = PracticeNode(pp="Source Node")
+    source_node.create()
+
+    target_node = PracticeNode(pp="Target Node")
+    target_node.create()
+
+    br = RelMergeOnMatchAliasesTest(
+        source=source_node,
+        target=target_node,
+        prop_to_merge_on="MergeMe",
+        my_prop="Foo",
+    )
+    br.merge()
+
+    cypher = """
+    MATCH (src:PracticeNode {pp: 'Source Node'})-[r:TEST_REL_MERGE_ON_MATCH_ALIASED]->(tgt:PracticeNode {pp: 'Target Node'})
+    RETURN r.myProp
+    """
+
+    result = use_graph.evaluate_query_single(cypher)
+
+    assert result == "Foo"
+
+    br2 = RelMergeOnMatchAliasesTest(
         source=source_node,
         target=target_node,
         prop_to_merge_on="MergeMe",
