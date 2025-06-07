@@ -73,6 +73,7 @@ class CommonModel(BaseModel):
         excludes = (exclude | set(self._never_set))
         if getattr(self, '__primaryproperty__',False):
             excludes.discard(self.__primaryproperty__)
+        #ToDo: this should be exclude_none=True. This may be related to #13.
         pydantic_export_dict = self.model_dump(
             exclude_none=False, exclude=excludes, by_alias=True, **kwargs
         )

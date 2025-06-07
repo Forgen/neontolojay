@@ -1113,9 +1113,13 @@ def test_create_mass_nodes(use_graph, benchmark):
 class UserWithAliases(BaseNode):
     __primaryproperty__: ClassVar[str] = "userName"
     __primarylabel__: ClassVar[str] = "User"
-    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+    model_config = ConfigDict(
+        validate_by_name=True, 
+        validate_by_alias=True,
+        populate_by_name=True,)
     user_name: Annotated[str, Field(alias="userName")]
-    some_other_property: Annotated[Optional[str], Field(None, alias="otherProperty")]
+    some_other_property: Annotated[Optional[str], 
+                            Field(None, alias="otherProperty")]
 
 
 def test_aliased_properties(use_graph):
@@ -1150,3 +1154,11 @@ def test_aliased_properties(use_graph):
 
     assert result.nodes[2].user_name == "User3"
     assert result.records_raw[2][0]["otherProperty"] == "beta"
+
+def test_merge_aliased_optional_properties(use_graph):
+    user1: UserWithAliases = UserWithAliases(userName="User1", some_other_property="no-overwrite")
+    user1.merge()
+    partial_user1 = UserWithAliases(user_name="User1")
+    partial_user1.merge()
+    # merge() of partial_user1 should not overwrite the previously merged some_other_property.
+    assert partial_user1.some_other_property == "no-overwrite"
