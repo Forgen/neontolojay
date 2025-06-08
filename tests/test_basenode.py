@@ -1,16 +1,16 @@
 # type: ignore
 from datetime import datetime
-from typing import ClassVar, List, Optional, Annotated
+from typing import Annotated, ClassVar, Optional
 from uuid import UUID, uuid4
 
 import pandas as pd
 import pytest
 from pydantic import (
+    ConfigDict,
     Field,
     ValidationInfo,
     field_serializer,
     field_validator,
-    ConfigDict,
 )
 
 from neontology import (
@@ -561,7 +561,7 @@ class ModelTestIntListExplicit(BaseNode):
     __primaryproperty__: ClassVar[str] = "pp"
     __primarylabel__: ClassVar[Optional[str]] = "TestModelIntListExplicit"
     pp: str
-    test_prop_int_list_exp: List[int]
+    test_prop_int_list_exp: list[int]
 
 
 @pytest.mark.parametrize(
@@ -769,6 +769,93 @@ def test_set_on_create_and_merge(use_graph):
     assert cypher_result2.nodes[0].normal_field == "Fi"
     assert test_node2.only_set_on_create == "Foo"
     assert test_node2.only_set_on_match == "Fa"
+
+
+def test_set_on_create_and_merge_with_aliases(use_graph):
+    """Check that we successfully identify field to set on match and on create
+    in same Node class"""
+
+    class TestModel(BaseNode):
+        __primaryproperty__: ClassVar[str] = "pp"
+        __primarylabel__: ClassVar[Optional[str]] = "TestModel3"
+        pp: str = "test_node"
+        only_set_on_create: Optional[str] = Field(
+            default=None, json_schema_extra={"set_on_create": True}, alias="onCreate"
+        )
+        only_set_on_match: Optional[str] = Field(
+            json_schema_extra={"set_on_match": True}, default=None, alias="onMatch"
+        )
+        normal_field: str
+        model_config = ConfigDict(
+            validate_by_name=True,
+            validate_by_alias=True,
+            populate_by_name=True,
+        )
+
+    test_node = TestModel(
+        only_set_on_create="Foo",
+        only_set_on_match="Fu",
+        normal_field="Bar",
+        pp="test_node",
+    )
+    test_node.merge()
+
+    cypher = """
+    MATCH (n:TestModel3)
+    WHERE n.pp = 'test_node'
+    RETURN n
+    """
+
+    cypher_result = use_graph.evaluate_query(cypher)
+
+    assert cypher_result.nodes[0].only_set_on_match is None
+    assert cypher_result.nodes[0].only_set_on_create == "Foo"
+    assert cypher_result.nodes[0].normal_field == "Bar"
+    assert test_node.only_set_on_match is None
+    assert test_node.only_set_on_create == "Foo"
+
+    test_node2 = TestModel(
+        only_set_on_create="Fee",
+        only_set_on_match="Fa",
+        normal_field="Fi",
+        pp="test_node",
+    )
+    test_node2.merge()
+
+    cypher_result2 = use_graph.evaluate_query(cypher)
+
+    assert cypher_result2.nodes[0].only_set_on_create == "Foo"
+    assert cypher_result2.nodes[0].only_set_on_match == "Fa"
+    assert cypher_result2.nodes[0].normal_field == "Fi"
+    assert test_node2.only_set_on_create == "Foo"
+    assert test_node2.only_set_on_match == "Fa"
+
+
+def test_never_set_self_reference(use_graph):
+    """Test a field with never_set that references it's own type"""
+
+    class NeverSetNode(BaseNode):
+        __primaryproperty__: ClassVar[str] = "name"
+        __primarylabel__: ClassVar[str] = "NeverSetNode"
+        name: str
+        never_set_other_node: Optional["NeverSetNode"] = Field(
+            default=None, json_schema_extra={"never_set": True}
+        )
+
+    nsn = NeverSetNode(name="Bob")
+    nsn2 = NeverSetNode(name="Jane", never_set_other_node=nsn)
+    nsn.merge()
+    nsn2.merge()
+
+    cypher = """
+    MATCH (n:NeverSetNode)
+    WHERE n.name = 'Jane'
+    RETURN n
+    """
+
+    cypher_result = use_graph.evaluate_query(cypher)
+
+    assert cypher_result.nodes[0].never_set_other_node is None
 
 
 class Person(BaseNode):
@@ -1090,7 +1177,11 @@ def test_create_mass_nodes(use_graph, benchmark):
 class UserWithAliases(BaseNode):
     __primaryproperty__: ClassVar[str] = "userName"
     __primarylabel__: ClassVar[str] = "User"
-    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+    model_config = ConfigDict(
+        validate_by_name=True,
+        validate_by_alias=True,
+        populate_by_name=True,
+    )
     user_name: Annotated[str, Field(alias="userName")]
     some_other_property: Annotated[Optional[str], Field(None, alias="otherProperty")]
 
@@ -1127,3 +1218,14 @@ def test_aliased_properties(use_graph):
 
     assert result.nodes[2].user_name == "User3"
     assert result.records_raw[2][0]["otherProperty"] == "beta"
+
+
+def test_merge_aliased_optional_properties(use_graph):
+    user1: UserWithAliases = UserWithAliases(
+        userName="User1", some_other_property="no-overwrite"
+    )
+    user1.merge()
+    partial_user1 = UserWithAliases(user_name="User1")
+    partial_user1.merge()
+    # merge() of partial_user1 should not overwrite the previously merged some_other_property.
+    assert partial_user1.some_other_property == "no-overwrite"

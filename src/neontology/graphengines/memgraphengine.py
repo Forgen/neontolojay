@@ -1,5 +1,5 @@
 import os
-from typing import Any, ClassVar, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, List, Optional
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -10,6 +10,10 @@ from ..gql import gql_identifier_adapter
 from ..result import NeontologyResult
 from .graphengine import GraphEngineBase, GraphEngineConfig
 from .neo4jengine import neo4j_records_to_neontology_records
+
+if TYPE_CHECKING:
+    from ..basenode import BaseNode
+    from ..baserelationship import BaseRelationship
 
 
 class MemgraphEngine(GraphEngineBase):
