@@ -162,9 +162,7 @@ class BaseRelationship(CommonModel):  # pyre-ignore[13]
                 raise ValueError(
                     "Could not validate that result and self source/target match."
                 )
-            element_id_prop = getattr(self, "__elementidproperty__", None)
-            if element_id_prop:
-                setattr(self, element_id_prop, getattr(result_rel, element_id_prop))
+            self.check_sync_result(result_rel)
             result.relationships[0] = self
         else:
             raise ValueError(
@@ -235,7 +233,7 @@ class BaseRelationship(CommonModel):  # pyre-ignore[13]
 
             gc = GraphConnection()
 
-            gc.merge_relationships(
+            return gc.merge_relationships(
                 source_label,
                 target_label,
                 source_prop,

@@ -170,15 +170,22 @@ def test_merge_relationship_merge_on_match(use_graph):
 
     assert result2 == "Bar"
 
+
 def test_merge_relationship_merge_on_match_with_aliases(use_graph):
     class RelMergeOnMatchAliasesTest(PracticeRelationship):
-        __relationshiptype__: ClassVar[Optional[str]] = "TEST_REL_MERGE_ON_MATCH_ALIASED"
-        prop_to_merge_on: str = Field(json_schema_extra={"merge_on": True},alias="mergeOn")
-        my_prop: str = Field(...,alias='myProp')
+        __relationshiptype__: ClassVar[Optional[str]] = (
+            "TEST_REL_MERGE_ON_MATCH_ALIASED"
+        )
+        prop_to_merge_on: str = Field(
+            json_schema_extra={"merge_on": True}, alias="mergeOn"
+        )
+        my_prop: str = Field(..., alias="myProp")
         model_config = ConfigDict(
-            validate_by_name=True, 
+            validate_by_name=True,
             validate_by_alias=True,
-            populate_by_name=True,)
+            populate_by_name=True,
+        )
+
     source_node = PracticeNode(pp="Source Node")
     source_node.create()
 
@@ -256,6 +263,59 @@ def test_merge_relationship_merge_on_create(use_graph):
     result2 = use_graph.evaluate_query_single(cypher)
 
     assert set(result2) == {"Foo", "Bar"}
+
+
+def test_merge_relationship_on_create_and_merge_with_aliases(use_graph):
+    """Check relationship fields with on match and on create in the same
+    relationship class"""
+
+    class AliasedRelationship(BaseRelationship):
+        __relationshiptype__: ClassVar[Optional[str]] = "ALIAS_RELATIONSHIP"
+        source: PracticeNode
+        target: PracticeNode
+        only_set_on_create: Optional[str] = Field(
+            default=None, json_schema_extra={"set_on_create": True}, alias="onCreate"
+        )
+        only_set_on_match: Optional[str] = Field(
+            json_schema_extra={"set_on_match": True}, default=None, alias="onMatch"
+        )
+        normal_field: str
+        prop_to_merge_on: str = Field(
+            json_schema_extra={"merge_on": True}, alias="mergeOn"
+        )
+
+        model_config = ConfigDict(
+            validate_by_name=True,
+            validate_by_alias=True,
+            populate_by_name=True,
+        )
+
+    p1 = PracticeNode(pp="Jane")
+    p1.merge()
+    p2 = PracticeNode(pp="Bob")
+    p2.merge()
+    aliasedRel = AliasedRelationship(
+        source=p1,
+        target=p2,
+        onCreate="created",
+        onMatch="notmatched",
+        normal_field="Foo",
+        mergeOn="La",
+    )
+    aliasedRel.merge()
+    assert aliasedRel.only_set_on_create == "created"
+    assert aliasedRel.only_set_on_match is None
+    aliasedRel2 = AliasedRelationship(
+        source=p1,
+        target=p2,
+        onCreate="notcreated",
+        onMatch="matched",
+        normal_field="Foo",
+        mergeOn="La",
+    )
+    aliasedRel2.merge()
+    assert aliasedRel2.only_set_on_create == "created"
+    assert aliasedRel2.only_set_on_match == "matched"
 
 
 def test_default_relationship_type():

@@ -24,28 +24,40 @@ class CommonModel(BaseModel):
 
     @classmethod
     def _set_prop_usage(cls) -> None:
-        cls._set_on_match, cls._set_on_match_no_aliases = cls._get_prop_usage("set_on_match")
-        cls._set_on_create, cls._set_on_create_no_aliases = cls._get_prop_usage("set_on_create")
+        cls._set_on_match, cls._set_on_match_no_aliases = cls._get_prop_usage(
+            "set_on_match"
+        )
+        cls._set_on_create, cls._set_on_create_no_aliases = cls._get_prop_usage(
+            "set_on_create"
+        )
         cls._never_set, cls._never_set_no_aliases = cls._get_prop_usage("never_set")
         cls._always_set = []
         cls._always_set_no_aliases = []
         for x, v in cls.model_fields.items():
-            if x not in (cls._set_on_match_no_aliases
-            + cls._set_on_create_no_aliases
-            + cls._never_set_no_aliases
-            + ["source", "target"]):
+            if x not in (
+                cls._set_on_match_no_aliases
+                + cls._set_on_create_no_aliases
+                + cls._never_set_no_aliases
+                + ["source", "target"]
+            ):
                 cls._always_set.append(v.alias if v.alias else x)
                 cls._always_set_no_aliases.append(x)
 
     @classmethod
-    def _get_prop_usage(cls, usage_type: str,) -> tuple[list[str], list[str]]:
+    def _get_prop_usage(
+        cls,
+        usage_type: str,
+    ) -> tuple[list[str], list[str]]:
         all_props = cls.model_fields
 
         selected_props = []
         selected_props_no_aliases = []
 
         for prop, entry in all_props.items():
-            if entry.json_schema_extra and entry.json_schema_extra.get(usage_type) is True:
+            if (
+                entry.json_schema_extra
+                and entry.json_schema_extra.get(usage_type) is True
+            ):
                 selected_props.append(entry.alias if entry.alias else prop)
                 selected_props_no_aliases.append(prop)
 
@@ -66,16 +78,18 @@ class CommonModel(BaseModel):
 
         return self._engine_dict(exclude=exclude, include=set(props))
 
-    def _engine_dict(self, exclude: set[str] = set(), by_alias: bool = True, **kwargs: Any) -> dict[str, Any]:
+    def _engine_dict(
+        self, exclude: set[str] = set(), by_alias: bool = True, **kwargs: Any
+    ) -> dict[str, Any]:
         """Return a dict made up of only types compatible with the GraphEngine
 
         Returns:
             dict: a dictionary export of this model instance
         """
-        excludes = (exclude | set(self._never_set))
-        if getattr(self, '__primaryproperty__',False):
+        excludes = exclude | set(self._never_set)
+        if getattr(self, "__primaryproperty__", False):
             excludes.discard(self.__primaryproperty__)
-        #ToDo: this should be exclude_none=True. This may be related to #13.
+        # ToDo: this should be exclude_none=True. This may be related to #13.
         pydantic_export_dict = self.model_dump(
             exclude_none=True, exclude=excludes, by_alias=by_alias, **kwargs
         )
@@ -91,7 +105,9 @@ class CommonModel(BaseModel):
 
         return export_dict
 
-    def _get_merge_parameters_common(self, exclude: set[str] = set(), by_alias: bool = True) -> dict[str, Any]:
+    def _get_merge_parameters_common(
+        self, exclude: set[str] = set(), by_alias: bool = True
+    ) -> dict[str, Any]:
         """Input an all properties dictionary, and filter based on property types.
 
         Returns:
@@ -102,16 +118,30 @@ class CommonModel(BaseModel):
 
         if by_alias:
             always_set = {
-                k: all_props[k] for k in self._always_set if (k in all_props and all_props[k] is not None)
+                k: all_props[k]
+                for k in self._always_set
+                if (k in all_props and all_props[k] is not None)
             }
-            set_on_match = {k: all_props[k] for k in self._set_on_match if k in all_props}
-            set_on_create = {k: all_props[k] for k in self._set_on_create if k in all_props}
+            set_on_match = {
+                k: all_props[k] for k in self._set_on_match if k in all_props
+            }
+            set_on_create = {
+                k: all_props[k] for k in self._set_on_create if k in all_props
+            }
         else:
             always_set = {
-                k: all_props[k] for k in self._always_set_no_aliases if (k in all_props and all_props[k] is not None)
+                k: all_props[k]
+                for k in self._always_set_no_aliases
+                if (k in all_props and all_props[k] is not None)
             }
-            set_on_match = {k: all_props[k] for k in self._set_on_match_no_aliases if k in all_props}
-            set_on_create = {k: all_props[k] for k in self._set_on_create_no_aliases if k in all_props}
+            set_on_match = {
+                k: all_props[k] for k in self._set_on_match_no_aliases if k in all_props
+            }
+            set_on_create = {
+                k: all_props[k]
+                for k in self._set_on_create_no_aliases
+                if k in all_props
+            }
         params = {
             "all_props": all_props,
             "always_set": always_set,
@@ -153,14 +183,18 @@ class CommonModel(BaseModel):
         Raises ValueError if self and result do not match"""
         if not isinstance(result, type(self)):
             raise ValueError(f"Result type is {type(result)}; expected {type(self)}.")
-        result_merge_parameters = result._get_merge_parameters_common(by_alias=False)
+        result_merge_parameters = result._get_merge_parameters_common(
+            by_alias=False, exclude={"source", "target"}
+        )
         result_prop_keys: dict = (
             result_merge_parameters["always_set"]
             | result_merge_parameters["set_on_create"]
             | result_merge_parameters["set_on_match"]
         )
-        self_merge_parameters = self._get_merge_parameters_common(by_alias=False)
-        self_prop_keys:dict = (
+        self_merge_parameters = self._get_merge_parameters_common(
+            by_alias=False, exclude={"source", "target"}
+        )
+        self_prop_keys: dict = (
             self_merge_parameters["always_set"]
             | self_merge_parameters["set_on_create"]
             | self_merge_parameters["set_on_match"]
