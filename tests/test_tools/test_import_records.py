@@ -75,7 +75,7 @@ def test_export_import(use_graph):
     assert len(FollowsImportRel.match_relationships()) == 1
 
 
-def test_dump_and_import(use_graph):
+def test_dump_and_import(request, use_graph):
     archy = PersonImportNode(name="archy", age=55, import_id="archy-1")
     archy.merge()
     betty = PersonImportNode(name="betty", age=66, import_id="betty-1")
@@ -88,11 +88,16 @@ def test_dump_and_import(use_graph):
     assert len(PersonImportNode.match_nodes()) == 2
     assert len(FollowsImportRel.match_relationships()) == 1
 
-    results = use_graph.evaluate_query("MATCH (n)-[r]->(o) RETURN *")
+    results = use_graph.evaluate_query("MATCH (n)-[r]->(o) RETURN n,r,o")
 
     import_data = results.neontology_dump()
 
-    use_graph.evaluate_query_single("MATCH (n) DETACH DELETE n")
+    if "networkx-engine" in request.node.callspec.id:
+        # grand cypher doesn't support DETACH DELETE
+        use_graph.engine.driver.clear()
+
+    else:
+        use_graph.evaluate_query_single("MATCH (n) DETACH DELETE n")
 
     assert len(PersonImportNode.match_nodes()) == 0
     assert len(FollowsImportRel.match_relationships()) == 0

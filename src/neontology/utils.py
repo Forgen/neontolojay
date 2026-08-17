@@ -7,11 +7,26 @@ from .baserelationship import BaseRelationship, RelationshipTypeData
 from .graphconnection import GraphConnection
 
 
-def get_node_types(base_type: type[BaseNode] = BaseNode) -> dict[str, type[BaseNode]]:
+def get_node_types(
+    base_type: type[BaseNode] = BaseNode,
+) -> dict[str, type[BaseNode]]:
+    """Get a dictionary of node types keyed by primary label.
+
+    This is based on the class hierarchy of BaseNode and its subclasses.
+
+    Optionally pass in a node class to only retrieve classes and subclasses of that type.
+
+    Args:
+        base_type (type[BaseNode], optional): Node type to return subclass information for. Defaults to BaseNode.
+
+    Returns:
+        dict[str, type[BaseNode]]: Dictionary of node types keyed by primary label.
+    """
     node_types = {}
 
     # if we're starting with a node type that has a primary label, include this in results
-    # if it has a primary label, it is a concrete class and don't searcch subclasses
+    # if it has a primary label, it is a concrete class and don't search subclasses
+    # (preserves match_relationships source/target type checks, neontolojay #6)
     if (
         hasattr(base_type, "__primarylabel__")
         and base_type.__primarylabel__ is not None
@@ -32,9 +47,15 @@ def get_node_types(base_type: type[BaseNode] = BaseNode) -> dict[str, type[BaseN
     return node_types
 
 
-def generate_relationship_type_data(rel_class: type[BaseRelationship]):
+def generate_relationship_type_data(
+    rel_class: type[BaseRelationship],
+) -> RelationshipTypeData:
+    """Generate relationship type data for a given relationship class."""
     defined_source_class = rel_class.model_fields["source"].annotation
     defined_target_class = rel_class.model_fields["target"].annotation
+
+    if not defined_source_class or not defined_target_class:
+        raise ValueError(f"Relationship {rel_class.__name__} must have source and target classes defined.")
 
     all_source_classes = list(get_node_types(defined_source_class).values())
     all_target_classes = list(get_node_types(defined_target_class).values())
@@ -48,29 +69,42 @@ def generate_relationship_type_data(rel_class: type[BaseRelationship]):
     )
 
 
+def _validate_relationship_nodes(rel_class: type[BaseRelationship]) -> bool:
+    """Validate that a relationship class has valid source and target node classes defined.
+
+    This handles cases where the relationship class is defined but the source or target are ForwardRefs
+        which may be resolved later.
+    """
+    defined_source_class = rel_class.model_fields["source"].annotation
+    defined_target_class = rel_class.model_fields["target"].annotation
+
+    if not isinstance(defined_source_class, type) or not isinstance(defined_target_class, type):
+        return False
+
+    return True
+
+
 def get_rels_by_type(
     base_type: type[BaseRelationship] = BaseRelationship,
 ) -> dict[str, RelationshipTypeData]:
+    """Get a dictionary of relationship type data keyed by relationship type.
+
+    Optionally pass in a relationship class to only retrieve classes and subclasses of that type.
+
+    The first registered class for a given relationship_type is kept (neontolojay #5).
+    Subclasses are still walked so distinct relationship types defined on subclasses are found.
+    """
     rel_types: dict = defaultdict(dict)
 
-    # if we're starting with a relationship type that has a relationshiptype, include this in results
-    # if it has a relationshiptype, it is a concrete class and don't searcch subclasses
-    if (
-        hasattr(base_type, "__relationshiptype__")
-        and base_type.__relationshiptype__ is not None
-    ):
-        rel_types[base_type.__relationshiptype__] = generate_relationship_type_data(
-            base_type
-        )
-    else:
-        for rel_subclass in base_type.__subclasses__():
-            # we can define 'abstract' relationships which don't have a label
-            # these are to provide common properties to be used by subclassed relationships
-            # but shouldn't be put in the graph
+    if getattr(base_type, "__relationshiptype__", None) and _validate_relationship_nodes(base_type):
+        rel_types[base_type.__relationshiptype__] = generate_relationship_type_data(base_type)
 
-            subclass_rel_types = get_rels_by_type(rel_subclass)
-
-            update_non_existing_inplace(rel_types, subclass_rel_types)
+    for rel_subclass in base_type.__subclasses__():
+        # we can define 'abstract' relationships which don't have a label
+        # these are to provide common properties to be used by subclassed relationships
+        # but shouldn't be put in the graph
+        subclass_rel_types = get_rels_by_type(rel_subclass)
+        update_non_existing_inplace(rel_types, subclass_rel_types)
 
     return rel_types
 
@@ -91,14 +125,15 @@ def update_non_existing_inplace(original_dict: dict, to_add: dict) -> None:
 
 
 def all_subclasses(cls: type) -> set:
-    return set(cls.__subclasses__()).union(
-        [s for c in cls.__subclasses__() for s in all_subclasses(c)]
-    )
+    """Recursively get all subclasses of a given class."""
+    subclasses = set(cls.__subclasses__())
+    for subclass in cls.__subclasses__():
+        subclasses.update(all_subclasses(subclass))
+    return subclasses
 
 
-def get_rels_by_node(
-    base_type: type[BaseRelationship] = BaseRelationship, by_source: bool = True
-) -> dict[str, set[str]]:
+def get_rels_by_node(base_type: type[BaseRelationship] = BaseRelationship, by_source: bool = True) -> dict[str, set[str]]:
+    """Get a dictionary of relationship types by source or target node type."""
     if by_source is True:
         node_dir = "source_class"
 
@@ -129,37 +164,35 @@ def get_rels_by_node(
 def get_rels_by_source(
     base_type: type[BaseRelationship] = BaseRelationship,
 ) -> dict[str, set[str]]:
+    """Get a dictionary of relationship types by source node type."""
     return get_rels_by_node(base_type, by_source=True)
 
 
 def get_rels_by_target(
     base_type: type[BaseRelationship] = BaseRelationship,
 ) -> dict[str, set[str]]:
+    """Get a dictionary of relationship types by target node type."""
     return get_rels_by_node(base_type, by_source=False)
 
 
 def apply_neo4j_constraints(node_types: list[type[BaseNode]]) -> None:
-    """Apply constraints based on primary properties for arbitrary set of node types"""
-
+    """Apply constraints based on primary properties for arbitrary set of node types."""
     graph = GraphConnection()
 
     for node_type in node_types:
         label = node_type.__primarylabel__
         if not label:
-            raise ValueError(
-                "Node must have an explicit primary label to apply a constraint."
-            )
+            raise ValueError("Node must have an explicit primary label to apply a constraint.")
         graph.engine.apply_constraint(label, node_type.__primaryproperty__)
 
 
 def auto_constrain_neo4j() -> None:
-    """Automatically apply constraints
+    """Automatically apply constraints.
 
     Get information about all the defined nodes in the current environment.
 
     Apply constraints based on the primary label and primary property for each node.
     """
-
     node_types = list(get_node_types().values())
 
     apply_neo4j_constraints(node_types)

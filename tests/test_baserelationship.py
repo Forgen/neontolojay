@@ -65,7 +65,7 @@ def test_source_target_type():
     assert expected in str(exception_info.value)
 
 
-def test_merge_relationship(use_graph):
+def test_merge_relationship(request, use_graph):
     source_node = PracticeNode(pp="Source Node")
     source_node.create()
 
@@ -86,7 +86,14 @@ def test_merge_relationship(use_graph):
 
     result = use_graph.evaluate_query_single(cypher)
 
-    assert result == "Default Practice Relationship Property"
+    if request.node.callspec.id not in ["networkx-engine"]:
+        assert result == "Default Practice Relationship Property"
+
+    if request.node.callspec.id in ["networkx-engine"]:
+        assert (
+            result[0][(0, "PRACTICE_RELATIONSHIP")]
+            == "Default Practice Relationship Property"
+        )
 
 
 @pytest.mark.filterwarnings(
@@ -147,16 +154,18 @@ def test_merge_relationship_merge_on_match(use_graph):
         prop_to_merge_on="MergeMe",
         my_prop="Foo",
     )
+
     br.merge()
 
     cypher = """
     MATCH (src:PracticeNode {pp: 'Source Node'})-[r:TEST_REL_MERGE_ON_MATCH]->(tgt:PracticeNode {pp: 'Target Node'})
-    RETURN r.my_prop
+    RETURN src,r,tgt
     """
 
-    result = use_graph.evaluate_query_single(cypher)
+    result = use_graph.evaluate_query(cypher)
 
-    assert result == "Foo"
+    assert len(result.relationships) == 1
+    assert result.relationships[0].my_prop == "Foo"
 
     br2 = RelMergeOnMatchTest(
         source=source_node,
@@ -166,9 +175,10 @@ def test_merge_relationship_merge_on_match(use_graph):
     )
     br2.merge()
 
-    result2 = use_graph.evaluate_query_single(cypher)
+    result2 = use_graph.evaluate_query(cypher)
 
-    assert result2 == "Bar"
+    assert len(result2.relationships) == 1
+    assert result2.relationships[0].my_prop == "Bar"
 
 
 def test_merge_relationship_merge_on_match_with_aliases(use_graph):
@@ -241,16 +251,18 @@ def test_merge_relationship_merge_on_create(use_graph):
         prop_to_merge_on="MergeMe",
         my_prop="Foo",
     )
+
     br.merge()
 
     cypher = """
     MATCH (src:PracticeNode {pp: 'Source Node'})-[r:TEST_REL_MERGE_ON_CREATE]->(tgt:PracticeNode {pp: 'Target Node'})
-    RETURN COLLECT(r.my_prop)
+    RETURN src,r,tgt
     """
 
-    result = use_graph.evaluate_query_single(cypher)
+    result = use_graph.evaluate_query(cypher)
 
-    assert result == ["Foo"]
+    assert len(result.relationships) == 1
+    assert result.relationships[0].my_prop == "Foo"
 
     br2 = RelMergeOnCreateTest(
         source=source_node,
@@ -260,9 +272,10 @@ def test_merge_relationship_merge_on_create(use_graph):
     )
     br2.merge()
 
-    result2 = use_graph.evaluate_query_single(cypher)
+    result2 = use_graph.evaluate_query(cypher)
 
-    assert set(result2) == {"Foo", "Bar"}
+    assert len(result2.relationships) == 2
+    assert set([x.my_prop for x in result2.relationships]) == {"Foo", "Bar"}
 
 
 def test_merge_relationship_on_create_and_merge_with_aliases(use_graph):
@@ -392,14 +405,14 @@ def test_merge_relationships_defined_types(use_graph):
 
     cypher = """
     MATCH (src:PracticeNode)-[r:TEST_NEW_RELATIONSHIP_TYPE]->(tgt:PracticeNode)
-    RETURN COLLECT(r.new_rel_prop)
+    RETURN src,r,tgt
     """
 
-    results = use_graph.evaluate_query_single(cypher)
+    results = use_graph.evaluate_query(cypher)
 
-    assert len(results) == 2
+    assert len(results.relationships) == 2
 
-    assert set(results) == {"Rel 1", "Rel 2"}
+    assert set([r.new_rel_prop for r in results.relationships]) == {"Rel 1", "Rel 2"}
 
 
 def test_get_count(use_graph):
@@ -414,11 +427,11 @@ def test_get_count(use_graph):
 
     NewRelType.merge_relationships([rel1, rel2])
 
-    assert NewRelType.get_count() == 2
+    assert len(NewRelType.match_relationships()) == 2
 
 
 def test_get_count_none(use_graph):
-    assert NewRelType.get_count() == 0
+    assert not NewRelType.get_count()
 
 
 class NewRelType2(BaseRelationship):
@@ -429,7 +442,7 @@ class NewRelType2(BaseRelationship):
     new_rel_prop: str
 
 
-def test_merge_df(use_graph):
+def test_merge_df(request, use_graph):
     source_node = SubclassNode(pp="Source Node", myprop="Some Value")
     source_node.merge()
 
@@ -451,10 +464,14 @@ def test_merge_df(use_graph):
 
     result = use_graph.evaluate_query_single(cypher)
 
-    assert result == "New Rel 3"
+    if request.node.callspec.id not in ["networkx-engine"]:
+        assert result == "New Rel 3"
+
+    if request.node.callspec.id in ["networkx-engine"]:
+        assert result[0][(0, "TEST_NEW_RELATIONSHIP_TYPE2")] == "New Rel 3"
 
 
-def test_merge_df_alt_prop(use_graph):
+def test_merge_df_alt_prop(request, use_graph):
     source_node = SubclassNode(pp="Source Node", myprop="My Prop Value")
     source_node.merge()
 
@@ -480,39 +497,11 @@ def test_merge_df_alt_prop(use_graph):
 
     result = use_graph.evaluate_query_single(cypher)
 
-    assert result == "New Rel 4"
+    if request.node.callspec.id not in ["networkx-engine"]:
+        assert result == "New Rel 4"
 
-
-def OLD_test_merge_df_bad_node_type(use_graph):
-    class DifferentNode(PracticeNode):
-        __primarylabel__: ClassVar[Optional[str]] = "DifferentNode"
-        __primaryproperty__: ClassVar[str] = "myprop"
-        myprop: str
-
-    source_node = PracticeNode(pp="something else")
-
-    target_node = PracticeNode(pp="Target Node")
-
-    rels = [NewRelType(source=source_node, target=target_node, new_rel_prop="BAD")]
-
-    with pytest.raises(TypeError):
-        NewRelType.merge_relationships(rels, PracticeNode, DifferentNode)
-
-
-def OLD_test_merge_df_bad_node_type2(use_graph):
-    class DifferentNode(PracticeNode):
-        __primarylabel__: ClassVar[Optional[str]] = "DifferentNode"
-        __primaryproperty__: ClassVar[str] = "myprop"
-        myprop: str
-
-    source_node = DifferentNode(myprop="something", pp="something else")
-
-    target_node = PracticeNode(pp="Target Node")
-
-    rels = [NewRelType(source=source_node, target=target_node, new_rel_prop="BAD2")]
-
-    with pytest.raises(TypeError):
-        NewRelType.merge_relationships(rels, PracticeNode, PracticeNode)
+    if request.node.callspec.id in ["networkx-engine"]:
+        assert result[0][(0, "TEST_NEW_RELATIONSHIP_TYPE2")] == "New Rel 4"
 
 
 def test_merge_empty_df():
@@ -523,7 +512,7 @@ def test_merge_empty_df():
     assert result is None
 
 
-def test_merge_records(use_graph):
+def test_merge_records(request, use_graph):
     source_node = SubclassNode(pp="Source Node", myprop="My Prop Value")
     source_node.merge()
 
@@ -543,10 +532,14 @@ def test_merge_records(use_graph):
 
     result = use_graph.evaluate_query_single(cypher)
 
-    assert result == "New Rel 5"
+    if request.node.callspec.id not in ["networkx-engine"]:
+        assert result == "New Rel 5"
+
+    if request.node.callspec.id in ["networkx-engine"]:
+        assert result[0][(0, "TEST_NEW_RELATIONSHIP_TYPE2")] == "New Rel 5"
 
 
-def test_create_mass_rels(use_graph, benchmark):
+def test_create_mass_rels(request, use_graph, benchmark):
     practice_records = [{"pp": uuid4().hex} for x in range(1000)]
 
     records_df = pd.DataFrame.from_records(practice_records)
@@ -562,10 +555,19 @@ def test_create_mass_rels(use_graph, benchmark):
 
     rels_df = pd.DataFrame.from_records(people_rels)
 
-    benchmark(PracticeRelationship.merge_df, rels_df)
+    def do_merge(input_df):
+        PracticeRelationship.merge_df(input_df)
 
-    result = use_graph.evaluate_query_single(
-        "MATCH (n)-[r]->(o) RETURN COUNT(DISTINCT(r))"
-    )
+        if request.node.callspec.id not in ["networkx-engine"]:
+            result = use_graph.evaluate_query_single(
+                "MATCH (n)-[r]->(o) RETURN COUNT(r)"
+            )
+            assert result == 999
 
-    assert result == 999
+            use_graph.evaluate_query_single("MATCH (n)-[r]->(o) DELETE r")
+
+        if request.node.callspec.id in ["networkx-engine"]:
+            assert len(use_graph.engine.driver.edges) == 999
+            use_graph.engine.driver.clear_edges()
+
+    benchmark(do_merge, rels_df)

@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 import pytest
-from pydantic import Field, ValidationError
+from pydantic import Field
 
 from neontology.commonmodel import CommonModel
 
@@ -19,21 +19,6 @@ def test_common_model_creation():
     common = PracticeModel(optional_string="testing123")
 
     assert isinstance(common.optional_string, str)
-
-
-def test_merged_created_deprecation(capsys):
-    now_time = datetime.now()
-
-    with pytest.raises(ValidationError):
-        PracticeModel(merged=now_time, created=now_time)
-        captured = capsys.readouterr()
-
-        assert (
-            "Native neontology support for 'merged' and 'created' properties has been removed."
-            in captured.err
-        )
-
-        assert 0
 
 
 def test_set_on_match():

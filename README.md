@@ -32,14 +32,6 @@ Download this repository and add it as a local dependency for your project.
 pip install neontolojay
 ```
 
-## Note on v2
-
-Version 2 introduces some new features and breaking changes.
-
-Initialization has changed to use a config object (see below) and 'merged'/'created' properties have been removed from the base node & base relationship (at a minimum you may need to [add them back](docs/recipes.md) to a custom base model if required).
-
-See the [changelog](CHANGELOG.md) or [read the docs](https://neontology.readthedocs.io/en/latest/) for more.
-
 ## Example
 
 ```python

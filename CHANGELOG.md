@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased (merge of ontolocy/neontology `develop` into neontolojay)
+
+Merged upstream `ontolocy/neontology` develop (through v2.2.2) into Forgen/neontolojay while preserving fork semantics:
+
+- Kept non-unique / element-id primary keys, optional-property merge (do not overwrite None), on-create/on-match sync, aliases, and match_relationships source/target type checks.
+- Took upstream filtering on `match_nodes`/`get_count`, NetworkxEngine (experimental), ForwardRef relationship handling, uv/CI extras, typing/docs.
+- `get_rels_by_type` now walks subclasses (so distinct types on subclasses are found) but still keeps the first class for a duplicated `relationship_type` (#5).
+- `get_node_types` still does not walk subclasses of a concrete node class (#6).
+
+See the merge report in the pull request for unmergeable conflicts.
+
+
+## v2.2.2
+
+### Fixed
+
+- Fixed bug where using ForwardRef type annotations for source/target types on a relationship cause errors. Note that ForwardRefs must be resolved before using the relationship (for creation or querying).
+
+## v2.2.1
+
+### Fixed
+
+- Updated handling of relationship merging in NetworkxEngine to prevent duplicate relationships and to support 'merge_on' properties.
+
+## v2.2.0
+
+### Features
+
+- Support for filtering on `match_nodes` and `get_count` (thanks to @BiBzz)
+- Experimental support for `NetworkxEngine` on Python v3.10+
+
+### Dependencies and Support
+
+- Addition of optional `[grand]` dependency group for `NetworkxEngine`
+- Addition of `[all]` dependency group
+
+## v2.1.3
+
+### Changed
+
+- Updated handling of development dependencies
+
+## v2.1.2
+
+### Changed
+
+- Removed deprecation validation error related to the use of 'created' and 'merged' fields
+
+## v2.1.1
+
+### Changed
+
+- Improved type hinting
+- Improved docstrings
+- Bugfixes
+
+### Development
+
+- Consolidate build info into pyproject.toml
+- Adopt UV
+
+## v2.1.0
+
+### Features
+
+- Add support for Pydantic Field Aliases for Node/Relationship property names (thanks to @Forgen)
+
+### Changed
+
+- Tidies up type hinting with generics from standard library (thanks to @BiBzz)
+
 ## v2.0.5
 
 ### Dependencies and Support
