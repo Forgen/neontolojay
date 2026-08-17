@@ -7,7 +7,7 @@ import pytest
 from dotenv import load_dotenv
 
 from neontology import GraphConnection, init_neontology
-from neontology.graphengines import MemgraphConfig, Neo4jConfig
+from neontology.graphengines import MemgraphConfig, Neo4jConfig, NetworkxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,13 @@ def reset_constraints():
             },
             id="memgraph-engine",
         ),
+        pytest.param(
+            {
+                "graph_config_vars": {},
+                "graph_engine": "NETWORKX",
+            },
+            id="networkx-engine",
+        ),
     ],
 )
 def get_graph_config(request, tmp_path_factory) -> tuple:
@@ -58,6 +65,7 @@ def get_graph_config(request, tmp_path_factory) -> tuple:
     graph_engines = {
         "NEO4J": Neo4jConfig,
         "MEMGRAPH": MemgraphConfig,
+        "NETWORKX": NetworkxConfig,
     }
 
     graph_config_vars = request.param["graph_config_vars"]
@@ -66,15 +74,11 @@ def get_graph_config(request, tmp_path_factory) -> tuple:
 
     # build config using environment variables
     for key, value in graph_config_vars.items():
-        if value == "TMP FILE":
-            file_path = tmp_path_factory.mktemp("graph_db") / f"{key}.pytest"
-            graph_config[key] = file_path
 
-            logger.info(f"Graph DB at {file_path}")
-
-        else:
-            graph_config[key] = os.getenv(value)
-            assert graph_config[key] is not None
+        graph_config[key] = os.getenv(value)
+        assert (
+            graph_config[key] is not None
+        ), f"Environment variable {value} is not set."
 
     graph_engine = request.param["graph_engine"]
 
@@ -103,9 +107,11 @@ def graph_db(request, tmp_path_factory, get_graph_config):
 
     node_count = gc.evaluate_query_single(cypher)
 
-    assert node_count == 0, (
-        f"Looks like there are {node_count} nodes in the database, it should be empty."
-    )
+    # most backends will return 0
+    # Grand will return an empty list
+    assert (
+        not node_count
+    ), f"Looks like there are {node_count} nodes in the database, it should be empty."
 
     yield gc
 
@@ -118,7 +124,8 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(scope="function")
-def use_graph(graph_db):
+def use_graph(request, graph_db):
+    """Fixture to use the graph database in tests."""
     yield graph_db
 
     # at the end of every individual test function, we want to empty the database
@@ -127,10 +134,15 @@ def use_graph(graph_db):
     MATCH (n) DETACH DELETE n;
     """
 
-    try:
-        graph_db.evaluate_query_single(cypher)
-    except RuntimeError:
-        pass
+    if "networkx-engine" not in request.node.callspec.id:
+        try:
+            graph_db.evaluate_query_single(cypher)
+        except RuntimeError:
+            pass
+
+    if "networkx-engine" in request.node.callspec.id:
+        # grand cypher doesn't support DETACH DELETE
+        graph_db.engine.driver.clear()
 
     # not all engines will implement constraints, so we don't always have to reset them
 

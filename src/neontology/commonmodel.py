@@ -1,7 +1,6 @@
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
-from pydantic_core import PydanticCustomError
+from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from .graphconnection import GraphConnection
 
@@ -24,6 +23,11 @@ class CommonModel(BaseModel):
 
     @classmethod
     def _set_prop_usage(cls) -> None:
+        """Set properties used by Neontology for specific purposes.
+
+        Initializes `_set_on_match`, `_set_on_create`, `_never_set`, and `_always_set`
+        (and their no-alias counterparts) from model field metadata.
+        """
         cls._set_on_match, cls._set_on_match_no_aliases = cls._get_prop_usage(
             "set_on_match"
         )
@@ -48,6 +52,14 @@ class CommonModel(BaseModel):
         cls,
         usage_type: str,
     ) -> tuple[list[str], list[str]]:
+        """Get properties used by Neontology for a specific purpose.
+
+        Args:
+            usage_type (str): Usage flag such as 'set_on_match', 'set_on_create', or 'never_set'.
+
+        Returns:
+            tuple[list[str], list[str]]: Aliased names and original field names.
+        """
         all_props = cls.model_fields
 
         selected_props = []
@@ -63,25 +75,27 @@ class CommonModel(BaseModel):
 
         return (selected_props, selected_props_no_aliases)
 
-    def _get_prop_values(
-        self, props: list[str], exclude: set[str] = set()
-    ) -> dict[str, Any]:
-        """
+    def _get_prop_values(self, props: list[str], exclude: set[str] = set()) -> dict[str, Any]:
+        """Get a dictionary of property values for the given properties.
+
+        Args:
+            props (list[str]): List of property names to include in the output.
+            exclude (set[str], optional): Properties to exclude from the output. Defaults to set().
 
         Returns:
             dict[str, Any]: a dictionary of key/value pairs.
         """
-
-        # prop_values = {
-        #    k: v for k, v in self._engine_dict(exclude=exclude).items() if k in props
-        # }
-
         return self._engine_dict(exclude=exclude, include=set(props))
 
     def _engine_dict(
         self, exclude: set[str] = set(), by_alias: bool = True, **kwargs: Any
     ) -> dict[str, Any]:
-        """Return a dict made up of only types compatible with the GraphEngine
+        """Return a dict made up of only types compatible with the GraphEngine.
+
+        Args:
+            exclude (set[str], optional): Properties to exclude from the output. Defaults to set().
+            by_alias (bool, optional): Export using field aliases. Defaults to True.
+            **kwargs: Additional keyword arguments to pass to the model_dump method.
 
         Returns:
             dict: a dictionary export of this model instance
@@ -89,12 +103,9 @@ class CommonModel(BaseModel):
         excludes = exclude | set(self._never_set)
         if getattr(self, "__primaryproperty__", False):
             excludes.discard(self.__primaryproperty__)
-        # ToDo: this should be exclude_none=True. This may be related to #13.
         pydantic_export_dict = self.model_dump(
             exclude_none=True, exclude=excludes, by_alias=by_alias, **kwargs
         )
-
-        # return pydantic_export_dict
 
         try:
             gc = GraphConnection()
@@ -110,10 +121,13 @@ class CommonModel(BaseModel):
     ) -> dict[str, Any]:
         """Input an all properties dictionary, and filter based on property types.
 
+        Args:
+            exclude (set[str], optional): Properties to exclude from the output. Defaults to set().
+            by_alias (bool, optional): Use aliased property names. Defaults to True.
+
         Returns:
             Dict[str, Any]: Dictionary of always_set, set_on_match, and set_on_create dictionaries
         """
-        # get all the properties
         all_props = self._engine_dict(exclude=exclude, by_alias=by_alias)
 
         if by_alias:
@@ -150,37 +164,16 @@ class CommonModel(BaseModel):
         }
         return params
 
-    #
-    # validators
-    #
-
-    @model_validator(mode="before")
-    @classmethod
-    def deprecated_merged_created(cls, data: Any) -> Any:
-        """Neontology v0 and v1 included and auto-populated this property.
-        Flag a warning whe
-            temporarily supported/deprecated before being removed.
-        """
-
-        if ("created" in data and "created" not in cls.model_fields) or (
-            "merged" in data and "merged" not in cls.model_fields
-        ):
-            raise PydanticCustomError(
-                "created_or_merged_fields",
-                (
-                    "Native neontology support for 'merged' and 'created' properties has been removed."
-                    " Consider adding these fields to your model(s) and read the docs for further info"
-                ),
-            )
-        return data
-
     def check_sync_result(self, result: Self) -> None:
         """Checks that a returned result matches the current object based on always_set properties.
+
         Synchronizes result.element_id to self if applicable.
         Synchronizes result.properties to self if self.property = None (i.e. not specified).
         Synchronizes result.properties to self if property set_on_match or set_on_create.
 
-        Raises ValueError if self and result do not match"""
+        Raises:
+            ValueError: if self and result do not match
+        """
         if not isinstance(result, type(self)):
             raise ValueError(f"Result type is {type(result)}; expected {type(self)}.")
         result_merge_parameters = result._get_merge_parameters_common(
